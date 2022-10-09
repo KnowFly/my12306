@@ -1,5 +1,6 @@
 # import requests
 import base64
+import time
 
 from requests_html import HTMLSession
 import json
@@ -12,7 +13,7 @@ headers = {
                   "Chrome/54.0.2840.99 Safari/537.36"}
 
 
-def initRequestSession():
+def getQR():
     # 域名/robots.txt 查看协议
     # 需要登录的用户名和密码
     data = {"appid": "otn"}
@@ -20,6 +21,7 @@ def initRequestSession():
     cookies = sson.cookies
     # my12306 = sson.post('https://kyfw.12306.cn/passport/web/checkLoginVerify/', cookies=cookies, headers=headers,
     my12306 = sson.post('https://kyfw.12306.cn/passport/web/create-qr64', cookies=cookies, headers=headers,
+                        # my12306 = sson.post('https://kyfw.12306.cn/passport/web/checkqr', cookies=cookies, headers=headers,
                         data=data)
     if my12306.status_code == 200:
         print("获取验证码成功")
@@ -64,6 +66,7 @@ def initRequestSession():
         print("============================================")
         result_code = json_data['result_code']
         uuid = json_data['uuid']
+        checkQR(uuid)
         if result_code == '0':
             print(json_data['image'])
             image_base64 = getImage(base64.b64decode(json_data['image']))
@@ -79,3 +82,26 @@ def getImage(img):
     with open(filepath, 'wb') as fd:  # w写入 b二进制形式
         fd.write(img)
     return filepath
+
+
+def checkQR(uuid):
+    while True:
+        data = {"appid": "otn", "uuid": uuid}
+        sson = HTMLSession()
+        cookies = sson.cookies
+        checkqr = sson.post('https://kyfw.12306.cn/passport/web/checkqr', cookies=cookies, headers=headers, data=data)
+        json_result = checkqr.json()
+        print(json_result)
+        status_code = json_result['result_code']
+        print(status_code)
+        print("============================================" + status_code)
+        if '1' == status_code:
+            print('已扫描请确定')
+            return
+        elif status_code == "2":
+            print(json_result['result_message'])
+        elif status_code == "3":
+            print('二维码过期')
+            getQR()
+            return
+        time.sleep(2)
