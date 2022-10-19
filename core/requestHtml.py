@@ -1,16 +1,22 @@
 # import requests
 import base64
+import threading
 import time
 
 from requests_html import HTMLSession
 import json
 from PIL import Image  # 操作图片
 from url_cons import login_url
+import time
+
+# import threading
 
 # 设置请求头
 headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
-                  "Chrome/54.0.2840.99 Safari/537.36"}
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:94.0) Gecko/20100101 Firefox/94.0",
+    "Accept-Language": "zh-CN,zh;q=0.8,zh-TW;q=0.7,zh-HK;q=0.5,en-US;q=0.3,en;q=0.2",
+    "Referer": "https://exservice.12306.cn/"
+}
 
 
 def getQR():
@@ -19,9 +25,7 @@ def getQR():
     data = {"appid": "otn"}
     sson = HTMLSession()
     cookies = sson.cookies
-    # my12306 = sson.post('https://kyfw.12306.cn/passport/web/checkLoginVerify/', cookies=cookies, headers=headers,
     my12306 = sson.post('https://kyfw.12306.cn/passport/web/create-qr64', cookies=cookies, headers=headers,
-                        # my12306 = sson.post('https://kyfw.12306.cn/passport/web/checkqr', cookies=cookies, headers=headers,
                         data=data)
     if my12306.status_code == 200:
         print("获取验证码成功")
@@ -66,11 +70,12 @@ def getQR():
         print("============================================")
         result_code = json_data['result_code']
         uuid = json_data['uuid']
-        checkQR(uuid)
         if result_code == '0':
             print(json_data['image'])
             image_base64 = getImage(base64.b64decode(json_data['image']))
             Image.open(image_base64).show()  # 依赖PIL库，打开图片(会创建一个零食文件打开图片，图片未被占用时销毁)
+            # threading.Thread.start(checkQR(uuid))  # 开一个线程去执行监听
+            checkQR(uuid)
         else:
             print("获取二维码图片失败")
     else:
@@ -86,22 +91,77 @@ def getImage(img):
 
 def checkQR(uuid):
     while True:
-        data = {"appid": "otn", "uuid": uuid}
+        data = {"appid": "otn", "uuid": uuid, "RAIL_EXPIRATION": "1666482521025"}
         sson = HTMLSession()
         cookies = sson.cookies
         checkqr = sson.post('https://kyfw.12306.cn/passport/web/checkqr', cookies=cookies, headers=headers, data=data)
         json_result = checkqr.json()
         print(json_result)
-        status_code = json_result['result_code']
-        print(status_code)
-        print("============================================" + status_code)
-        if '1' == status_code:
+        result_code = json_result['result_code']
+        if '1' == result_code:
             print('已扫描请确定')
+        elif result_code == "2":
+            uamtk = json_result['uamtk']
+            print('扫码登录成功-' + uamtk)
+            checkUamtk(uamtk)
             return
-        elif status_code == "2":
-            print(json_result['result_message'])
-        elif status_code == "3":
-            print('二维码过期')
+        elif result_code == "3":
             getQR()
+            print('二维码已过期')
             return
         time.sleep(2)
+
+
+def checkUamtk(uamtk):
+    data = {"appid": "excater", "uamtk": uamtk}
+    sson = HTMLSession()
+    cookies = sson.cookies
+    checkqr = sson.post('https://kyfw.12306.cn/passport/web/auth/uamtk', cookies=cookies, headers=headers,
+                        data=data)
+    json_result = checkqr.json()
+    print(json_result)
+    result_code = json_result['result_code']
+    result_message = json_result['result_message']
+    apptk = json_result['apptk']
+    newapptk = json_result['newapptk']
+    if '0' == result_code:
+        print('checkUamtk通过')
+        checkUamauthclient(newapptk)
+        return
+    else:
+        print('checkUamtk失败')
+
+
+def checkUamauthclient(tk):
+    data = {"tk": tk}
+    sson = HTMLSession()
+    cookies = sson.cookies
+    checkqr = sson.post('https://exservice.12306.cn/excater/uamauthclient', cookies=cookies, headers=headers,
+                        data=data)
+    json_result = checkqr.json()
+    print(json_result)
+    result_code = json_result['result_code']
+    apptk = json_result['apptk']
+    print("===========================================result_code=" + result_code + "，newapptk" + apptk)
+    if '0' == result_code:
+        print('checkUamauthclient通过')
+        checkLogin(apptk)
+        return
+    else:
+        print('checkUamauthclient失败')
+
+
+def checkLogin(apptk):
+    data = {}
+    sson = HTMLSession()
+    cookies = sson.cookies
+    cookies.set("tk", apptk)
+    checkqr = sson.post('https://exservice.12306.cn/excater/login/checkLogin', cookies=cookies, headers=headers,
+                        data=data)
+    if checkqr.status_code == 200:
+        json_result = checkqr.json()
+        print(json_result)
+        print("===========================================result_code=" + json_result + "，newapptk" + apptk)
+        pass
+    else:
+        print('checkUamauthclient失败')
